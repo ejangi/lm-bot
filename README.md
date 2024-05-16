@@ -4,8 +4,20 @@ A small Windows Service, written in Rust, that listens for Google pub/sub messag
 
 ## Development
 
-Once you `cargo build` you'll want to register the service with the local system using an `Administrator` user:
+Open `cmd.exe` as admin and run:
 
 ```bat
-sc create lm-bot binPath="C:\Users\Ejangi\Sites\lmbot\target\debug\lmbot.exe"
+cargo post build
 ```
+
+This will build the code and run the `post_build.rs` script to install the service on your machine.
+
+You'll then need to go to the Services dashboard in Windows and start the service. Alternatively, you can run `net start lm-bot`.
+
+After the initial installation, you no longer need to use the `post_build.rs` script, so you can simply run:
+
+```bat
+cargo build
+```
+
+And restart the service.
