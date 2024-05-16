@@ -19,10 +19,15 @@ use directories::BaseDirs;
 use std::path::Path;
 use std::io;
 use std::fs::OpenOptions;
+mod app_config;
+pub use crate::app_config::lm_bot;
 
 define_windows_service!(ffi_service_main, my_service_main);
 
 fn my_service_main(arguments: Vec<OsString>) {
+    setup_local(lm_bot::SERVICE_NAME);
+    log::info!("entered my_service_main()");
+
     if let Err(e) = run_service(arguments) {
         eprintln!("Service error: {:?}", e);
         log::error!("Service error: {:?}", e);
@@ -30,18 +35,29 @@ fn my_service_main(arguments: Vec<OsString>) {
 }
 
 fn run_service(_arguments: Vec<OsString>) -> windows_service::Result<()> {
+    log::info!("entered run_service()");
+
     let running_flag = Arc::new(Mutex::new(true));
     let running_flag_clone = Arc::clone(&running_flag);
     let running_flag_clone2 = Arc::clone(&running_flag);
 
     // Register the service control handler
-    let status_handle = service_control_handler::register("lm-bot", move |control_event| {
+    let status_handle = service_control_handler::register(lm_bot::SERVICE_NAME, move |control_event| {
         match control_event {
             ServiceControl::Stop => {
                 let mut running = running_flag.lock().unwrap();
                 *running = false;
                 ServiceControlHandlerResult::NoError
             }
+
+            ServiceControl::UserEvent(code) => {
+                if code.to_raw() == 130 {
+                    let mut running = running_flag.lock().unwrap();
+                    *running = false;
+                }
+                ServiceControlHandlerResult::NoError
+            }
+
             _ => ServiceControlHandlerResult::NotImplemented,
         }
     })?;
@@ -100,16 +116,16 @@ fn setup_local(service_name: &str) {
 
     if let Some(base_dirs) = BaseDirs::new() {
         our_dir.push_str(base_dirs.data_local_dir().to_str().unwrap());
-        our_dir.push_str("/");
+        our_dir.push_str("\\");
         our_dir.push_str(service_name);
     }
 
     let mut log_file: String = Default::default();
     log_file.push_str(&our_dir);
-    log_file.push_str("/");
+    log_file.push_str("\\");
     log_file.push_str("bot.log");
 
-    println!("Path: {:?}", &Path::new(&log_file));
+    println!("Path: {:?}", &Path::new(&log_file).as_os_str());
 
     touch(&Path::new(&log_file)).unwrap_or_else(|why| {
         println!("! {:?}", why.kind());
@@ -120,7 +136,6 @@ fn setup_local(service_name: &str) {
         .path(log_file)
         .level("debug")
         .output_file()
-        .output_console()
         .build();
 
     let _ = simple_log::new(config).unwrap();
@@ -147,8 +162,6 @@ async fn print_message(msg: &ReceivedMessage) {
 }
 
 fn main() -> windows_service::Result<()> {
-    let service_name = "lm-bot";
-    setup_local(service_name);
-    service_dispatcher::start(service_name, ffi_service_main)?;
+    service_dispatcher::start(lm_bot::SERVICE_NAME, ffi_service_main)?;
     Ok(())
 }
