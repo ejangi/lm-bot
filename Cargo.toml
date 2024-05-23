@@ -16,3 +16,7 @@ simple-log = "1.5.1"
 
 [package.metadata.cargo-post.dependencies]
 windows-service = "0.7.0"
+
+[[bin]]
+name = "standalone"
+path = "src/standalone.rs"
