@@ -1,10 +1,13 @@
-extern crate simple_log;
-use simple_log::LogConfigBuilder;
+#[macro_use]
+extern crate windows_service;
+
+#[macro_use]
+extern crate log;
+
 use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use windows_service::define_windows_service;
 use windows_service::service::{
     ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType
 };
@@ -14,19 +17,14 @@ use tokio::runtime::Runtime;
 use google_cloud_pubsub::client::{Client, ClientConfig};
 use google_cloud_pubsub::subscriber::ReceivedMessage;
 use google_cloud_auth::credentials::CredentialsFile;
-extern crate directories;
-use directories::BaseDirs;
-use std::path::Path;
-use std::io;
-use std::fs::OpenOptions;
 mod app_config;
+
 pub use crate::app_config::lm_bot;
 
 define_windows_service!(ffi_service_main, my_service_main);
 
 fn my_service_main(arguments: Vec<OsString>) {
-    setup_local(lm_bot::SERVICE_NAME);
-    log::info!("entered my_service_main()");
+    info!("entered my_service_main()");
 
     if let Err(e) = run_service(arguments) {
         eprintln!("Service error: {:?}", e);
@@ -35,7 +33,8 @@ fn my_service_main(arguments: Vec<OsString>) {
 }
 
 fn run_service(_arguments: Vec<OsString>) -> windows_service::Result<()> {
-    log::info!("entered run_service()");
+    eventlog::init(lm_bot::SERVICE_NAME, log::Level::Trace).unwrap();
+    info!("entered run_service()");
 
     let running_flag = Arc::new(Mutex::new(true));
     let running_flag_clone = Arc::clone(&running_flag);
@@ -73,7 +72,7 @@ fn run_service(_arguments: Vec<OsString>) -> windows_service::Result<()> {
         process_id: None,
     })?;
 
-    log::info!("Service running");
+    info!("Service running");
 
     // Run the Pub/Sub subscription in a Tokio runtime
     thread::spawn(move || {
@@ -99,66 +98,39 @@ fn run_service(_arguments: Vec<OsString>) -> windows_service::Result<()> {
         process_id: None,
     })?;
 
-    log::info!("Service stopping");
+    info!("Service stopping");
 
     Ok(())
 }
 
-fn touch(path: &Path) -> io::Result<()> {
-    match OpenOptions::new().create(true).write(true).open(path) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e),
-    }
-}
-
-fn setup_local(service_name: &str) {
-    let mut our_dir: String = Default::default();
-
-    if let Some(base_dirs) = BaseDirs::new() {
-        our_dir.push_str(base_dirs.data_local_dir().to_str().unwrap());
-        our_dir.push_str("\\");
-        our_dir.push_str(service_name);
-    }
-
-    let mut log_file: String = Default::default();
-    log_file.push_str(&our_dir);
-    log_file.push_str("\\");
-    log_file.push_str("bot.log");
-
-    println!("Path: {:?}", &Path::new(&log_file).as_os_str());
-
-    touch(&Path::new(&log_file)).unwrap_or_else(|why| {
-        println!("! {:?}", why.kind());
-        log::error!("! {:?}", why.kind());
-    });
-
-    let config = LogConfigBuilder::builder()
-        .path(log_file)
-        .level("debug")
-        .output_file()
-        .build();
-
-    let _ = simple_log::new(config).unwrap();
-}
-
 async fn subscribe_to_pubsub(running_flag: Arc<Mutex<bool>>) {
-    let cred = CredentialsFile::new_from_file("credentials.json".to_string()).await.unwrap();
+    info!("Entered subscribe_to_pubsub");
+    let cred_string = include_str!("credentials.json");
+    let cred = CredentialsFile::new_from_str(&cred_string).await.unwrap();
+    if cred.client_email.is_none() {
+        error!("No client_email");
+    }
     let client_config = ClientConfig::default().with_credentials(cred).await.unwrap();
     let client = Client::new(client_config).await.unwrap();
     let subscription = client.subscription("llm-prompt-sub");
+    if !subscription.exists(None).await.unwrap() {
+        error!("Subscription does not exist");
+    }
+
+    info!("Subscription ready. Starting loop...");
 
     while *running_flag.lock().unwrap() {
         let message: Vec<ReceivedMessage> = subscription.pull(10, None).await.unwrap();
         for msg in message {
-            print_message(&msg).await;
+            print_message(&msg.message.data).await;
             msg.ack().await.unwrap();
         }
     }
 }
 
-async fn print_message(msg: &ReceivedMessage) {
+async fn print_message(msg: &Vec<u8>) {
     println!("Received message: {:?}", msg);
-    log::info!("Received message: {:?}", msg);
+    info!("Received message: {:?}", msg);
 }
 
 fn main() -> windows_service::Result<()> {
