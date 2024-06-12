@@ -33,7 +33,7 @@ fn my_service_main(arguments: Vec<OsString>) {
 }
 
 fn run_service(_arguments: Vec<OsString>) -> windows_service::Result<()> {
-    eventlog::init(lm_bot::SERVICE_NAME, log::Level::Trace).unwrap();
+    eventlog::init(lm_bot::SERVICE_NAME, log::Level::Info).unwrap();
     info!("entered run_service()");
 
     let running_flag = Arc::new(Mutex::new(true));
@@ -104,17 +104,46 @@ fn run_service(_arguments: Vec<OsString>) -> windows_service::Result<()> {
 }
 
 async fn subscribe_to_pubsub(running_flag: Arc<Mutex<bool>>) {
-    info!("Entered subscribe_to_pubsub");
     let cred_string = include_str!("credentials.json");
-    let cred = CredentialsFile::new_from_str(&cred_string).await.unwrap();
+    let cred_result = CredentialsFile::new_from_str(&cred_string).await;
+    let cred: CredentialsFile;
+    match cred_result {
+        Ok(value) => cred = value,
+        Err(err) => {
+            cred = CredentialsFile::new().await.unwrap();
+            error!("Could not get credentials from file {}", err);
+        }
+    }
+
     if cred.client_email.is_none() {
         error!("No client_email");
     }
-    let client_config = ClientConfig::default().with_credentials(cred).await.unwrap();
-    let client = Client::new(client_config).await.unwrap();
+
+    let client_config_result = ClientConfig::default().with_credentials(cred).await;
+    let client_config: ClientConfig;
+    match client_config_result {
+        Ok(value) => client_config = value,
+        Err(err) => {
+            client_config = ClientConfig::default();
+            error!("Error creating ClientConfig.with_credentials(): {}", err);
+        }
+    }
+
+    let client_result = Client::new(client_config).await;
+    let client: Client;
+    match client_result {
+        Ok(value) => client = value,
+        Err(err) => {
+            error!("Unable to initialise Client struct. {}", err);
+            return;
+        }
+    }
+
     let subscription = client.subscription("llm-prompt-sub");
-    if !subscription.exists(None).await.unwrap() {
-        error!("Subscription does not exist");
+    let subscription_check = subscription.exists(None).await;
+    match subscription_check {
+        Ok(value) => info!("Subscription exists: {}", value),
+        Err(err) => error!("Subscription does not exist {}", err)
     }
 
     info!("Subscription ready. Starting loop...");
@@ -129,8 +158,17 @@ async fn subscribe_to_pubsub(running_flag: Arc<Mutex<bool>>) {
 }
 
 async fn print_message(msg: &Vec<u8>) {
-    println!("Received message: {:?}", msg);
-    info!("Received message: {:?}", msg);
+    let message: String;
+    let message_result = String::from_utf8(msg.to_owned());
+    match message_result {
+        Ok(value) => {
+            message = value;
+            info!("Received message: {:?}", message);
+        }
+        Err(err) => {
+            error!("Unable to convert Vec<u8> message to string. {}", err)
+        }
+    }
 }
 
 fn main() -> windows_service::Result<()> {
