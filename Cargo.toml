@@ -2,6 +2,10 @@
 name = "lmbot"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+authors = ["James Angus <james@ejangi.com>"]
+homepage = "https://github.com/ejangi/lm-bot"
+repository = "https://github.com/ejangi/lm-bot"
 
 [dependencies]
 google-cloud-auth = "0.15.0"

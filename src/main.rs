@@ -163,6 +163,7 @@ async fn print_message(msg: &Vec<u8>) {
     };
 }
 
+#[cfg(windows)]
 fn main() -> windows_service::Result<()> {
     service_dispatcher::start(lm_bot::SERVICE_NAME, ffi_service_main)?;
     Ok(())
