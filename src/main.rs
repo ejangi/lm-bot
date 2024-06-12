@@ -105,43 +105,36 @@ fn run_service(_arguments: Vec<OsString>) -> windows_service::Result<()> {
 
 async fn subscribe_to_pubsub(running_flag: Arc<Mutex<bool>>) {
     let cred_string = include_str!("credentials.json");
-    let cred_result = CredentialsFile::new_from_str(&cred_string).await;
-    let cred: CredentialsFile;
-    match cred_result {
-        Ok(value) => cred = value,
+    let cred = match CredentialsFile::new_from_str(&cred_string).await {
+        Ok(value) => value,
         Err(err) => {
-            cred = CredentialsFile::new().await.unwrap();
             error!("Could not get credentials from file {}", err);
+            CredentialsFile::new().await.unwrap()
         }
-    }
+    };
 
     if cred.client_email.is_none() {
         error!("No client_email");
     }
 
-    let client_config_result = ClientConfig::default().with_credentials(cred).await;
-    let client_config: ClientConfig;
-    match client_config_result {
-        Ok(value) => client_config = value,
+    let client_config = match ClientConfig::default().with_credentials(cred).await {
+        Ok(value) => value,
         Err(err) => {
-            client_config = ClientConfig::default();
             error!("Error creating ClientConfig.with_credentials(): {}", err);
+            ClientConfig::default()
         }
-    }
+    };
 
-    let client_result = Client::new(client_config).await;
-    let client: Client;
-    match client_result {
-        Ok(value) => client = value,
+    let client = match Client::new(client_config).await {
+        Ok(value) => value,
         Err(err) => {
             error!("Unable to initialise Client struct. {}", err);
-            return;
+            return
         }
-    }
+    };
 
     let subscription = client.subscription("llm-prompt-sub");
-    let subscription_check = subscription.exists(None).await;
-    match subscription_check {
+    match subscription.exists(None).await {
         Ok(value) => info!("Subscription exists: {}", value),
         Err(err) => error!("Subscription does not exist {}", err)
     }
@@ -158,17 +151,16 @@ async fn subscribe_to_pubsub(running_flag: Arc<Mutex<bool>>) {
 }
 
 async fn print_message(msg: &Vec<u8>) {
-    let message: String;
-    let message_result = String::from_utf8(msg.to_owned());
-    match message_result {
+    match String::from_utf8(msg.to_owned()){
         Ok(value) => {
-            message = value;
-            info!("Received message: {:?}", message);
+            info!("Received message: {:?}", value);
+            value
         }
         Err(err) => {
-            error!("Unable to convert Vec<u8> message to string. {}", err)
+            error!("Unable to convert Vec<u8> message to string. {}", err);
+            "".to_string()
         }
-    }
+    };
 }
 
 fn main() -> windows_service::Result<()> {
